@@ -6,68 +6,75 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 import streamlit as st
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import r2_score, mean_squared_error
 
+st.set_page_config(page_title="World Expenditure Dashboard", layout="wide")
 
-# Load Data
+# Load dataset
 df = pd.read_csv("WorldExpenditures.csv")
 
-# 1. Basic Dataset Overview
-st.title("🌍 World Government Expenditure Dashboard")
+# Format large numbers
+def format_millions(x):
+    if pd.isna(x):
+        return "N/A"
+    elif abs(x) >= 1_000_000:
+        return f"{x / 1_000_000:.2f}M"
+    elif abs(x) >= 1:
+        return f"{x / 1_000:.2f}K"
+    else:
+        return f"{x:.2f}"
 
-# --- Dataset Overview ---
+
+def render_styled_table(df):
+    df_copy = df.copy()
+    for col in df_copy.columns:
+        if df_copy[col].dtype in [np.float64, np.int64] and col != "GDP(%)" and col != "Year":
+            df_copy[col] = df_copy[col].apply(format_millions)
+    styled_html = df_copy.to_html(classes='styled-table', index=False)
+    st.markdown(
+        """
+        <style>
+        .styled-table {
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 14px;
+            width: 100%;
+            border: 1px solid #ccc;
+            text-align: center;
+        }
+        .styled-table thead tr {
+            background-color: #009879;
+            color: #ffffff;
+        }
+        .styled-table th, .styled-table td {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+        }
+        .styled-table tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True)
+    st.markdown(styled_html, unsafe_allow_html=True)
+
+
+# Title
+st.title("🌍 World Government Expenditure Dashboard")
 st.markdown("### 📊 World Government Expenditure Dataset")
+
 with st.expander("ℹ️ About the Dataset"):
     st.markdown("""
-    This dataset contains **world government expenditures** from **2000 to 2021** across various sectors.  
+    This dataset contains world government expenditures from 2000 to 2021 across various sectors.
     It includes:
-
-    - **Country** and **Year**  
-    - **Sector** of spending (e.g., Health, Education, Military)  
-    - **Expenditure** in million USD  
-    - **Expenditure as a percentage of GDP**
-
-    **What is GDP?**  
-    GDP (Gross Domestic Product) is the total value of all goods and services produced by a country in a year.  
-    When we say **"expenditure as a % of GDP,"** it shows how much a country spends on a sector relative to its total economy.
-
-    This data enables analysis of:
-    - Government spending patterns  
-    - Sectoral priorities across nations  
-    - Economic trends over time
-    """)
-# ✅ Preview a sample of the dataset
-st.subheader("🔍 Sample of the Dataset")
-st.dataframe(df.head())
-
-# --- Dataset Overview (Before Cleaning) ---
-st.header("📄 Dataset Overview (Full Data)")
-
-# Show shape
-st.markdown(f"**Shape:** {df.shape}")
-
-# Show missing values
-st.markdown("**Missing values:**")
-st.dataframe(df.isna().sum().reset_index().rename(columns={'index': 'Column', 0: 'Missing Values'}))
-
-# Show duplicate rows count
-duplicate_count = df.duplicated().sum()
-st.markdown(f"**Duplicate rows:** {duplicate_count}")
-
-# --- Optional: Show Data Cleaning Steps ---
-with st.expander("🧹 View Data Cleaning Steps"):
-    st.markdown("""
-    **Data Cleaning Summary:**
-    - Removed rows with missing values using `dropna()`.
-    - Dropped irrelevant or fully empty columns.
-    - Excluded zero values when calculating mode to avoid skewed results.
-    - Converted `Year` column to integer type for filtering and modeling.
-    - Standardized column names and removed unnecessary whitespace.
+    - Country and Year
+    - Sector of spending (e.g., Health, Education, Military)
+    - Expenditure in million USD
+    - Expenditure as a percentage of GDP
     """)
 
-# Clean Data
+# Data cleaning
 df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 df = df[df["Sector"].str.lower() != "total function"]
 df = df.dropna(subset=["Year", "Expenditure(million USD)", "GDP(%)"])
@@ -75,228 +82,232 @@ df["Year"] = df["Year"].astype(int)
 df["Expenditure(million USD)"] = df["Expenditure(million USD)"].astype(float)
 df["GDP(%)"] = df["GDP(%)"].astype(float)
 
+# Sidebar filters
+with st.sidebar:
+    st.markdown(
+        """
+        <div style='border: 2px solid #f63366; padding: 10px; border-radius: 10px; background-color: #f9f9f9;'>
+        <h4>📁 Dataset Info</h4>
+        <p>This dashboard analyzes world government expenditures.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    selected_year = st.selectbox("Select a Year:", sorted(df["Year"].unique()))
+    selected_country = st.selectbox("Select a Country:", sorted(df["Country"].unique()))
 
-# Sidebar
-st.sidebar.header("📁 Dataset Info")
-st.sidebar.markdown("This dashboard analyzes world government expenditures.")
-year_options = sorted(df["Year"].unique())
-country_options = sorted(df["Country"].unique())
-selected_year = st.sidebar.selectbox("Select a Year:", year_options)
-selected_country = st.sidebar.selectbox("Select a Country:", country_options)
-
-# Filtered Data
 filtered_df = df[(df["Year"] == selected_year) & (df["Country"] == selected_country)]
 
-# 2. Basic Statistics
-st.subheader("📊Statistics (Selected Year & Country Only)")
+# Dataset preview
+st.subheader("🔍 Sample of the Dataset")
+render_styled_table(df.head())
+
+# Dataset overview
+st.header("📄 Dataset Overview (Full Data)")
+st.markdown(f"**Shape:** {df.shape}")
+
+st.markdown("**Missing values:**")
+render_styled_table(df.isna().sum().reset_index().rename(columns={'index': 'Column', 0: 'Missing Values'}))
+
+duplicate_count = df.duplicated().sum()
+st.markdown(f"**Duplicate rows:** {duplicate_count}")
+
+with st.expander("🧹 View Data Cleaning Steps"):
+    st.markdown("""
+    - Dropped missing and unnecessary columns  
+    - Removed rows with missing values  
+    - Converted data types to numeric
+    """)
+
+#Statistics Section
+st.subheader("📊 Statistics (Selected Year & Country)")
+
 if not filtered_df.empty:
     numeric_cols = filtered_df.select_dtypes(include=np.number).columns.drop("Year")
-    st.write("Mean:")
-    st.write(filtered_df[numeric_cols].mean())
-    st.write("Median:")
-    st.write(filtered_df[numeric_cols].median())
-    st.write("Mode:")
-    mode_result = filtered_df[numeric_cols].mode()
-    st.write(mode_result.iloc[0] if not mode_result.empty else "No mode found")
+
+    #Mean
+    mean_df = filtered_df[numeric_cols].mean().round(2).rename("Value").reset_index()
+    mean_df.columns = ["Metric", "Value"]
+    mean_df["Value"] = mean_df["Value"].apply(format_millions)
+
+    #Median
+    median_df = filtered_df[numeric_cols].median().round(2).rename("Value").reset_index()
+    median_df.columns = ["Metric", "Value"]
+    median_df["Value"] = median_df["Value"].apply(format_millions)
+
+    #Mode
+    mode_expenditure = filtered_df.loc[filtered_df["Expenditure(million USD)"] > 0, "Expenditure(million USD)"].mode()
+    mode_gdp = filtered_df.loc[filtered_df["GDP(%)"] > 0, "GDP(%)"].mode()
+
+    mode_data = {
+        "Metric": ["Expenditure(million USD)", "GDP(%)"],
+        "Value": [
+            format_millions(mode_expenditure[0]) if not mode_expenditure.empty else "N/A",
+            format_millions(mode_gdp[0]) if not mode_gdp.empty else "N/A"
+        ]
+    }
+    mode_df = pd.DataFrame(mode_data)
+
+    #Display all 3 tables side by side
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("<h5 style='color:#F9C74F;'>Mean</h5>", unsafe_allow_html=True)
+        st.markdown(mean_df.to_html(classes="custom-yellow-table", index=False), unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("<h5 style='color:#F9C74F;'>Median</h5>", unsafe_allow_html=True)
+        st.markdown(median_df.to_html(classes="custom-yellow-table", index=False), unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("<h5 style='color:#F9C74F;'>Mode</h5>", unsafe_allow_html=True)
+        st.markdown(mode_df.to_html(classes="custom-yellow-table", index=False), unsafe_allow_html=True)
+
 else:
-    st.warning("⚠️ No data available for the selected year and country.")
+    st.warning("⚠️ No data available for this selection.")
 
-# 3. Visualizations
-st.subheader("📈 Visualizations (for Selected Year & Country)")
+# 📊 Sector-wise Expenditure Distribution – Funnel Chart (Horizontal)
+st.subheader("📊 Sector-wise Expenditure Distribution")
+
 if not filtered_df.empty:
-    # Histogram (log-scaled)
-    fig1, ax1 = plt.subplots()
-    ax1.hist(np.log1p(filtered_df["Expenditure(million USD)"]), bins=10, color="skyblue")
-    ax1.set_title("Log-Scaled Expenditure Distribution")
-    ax1.set_xlabel("Log(Expenditure)")
-    ax1.set_ylabel("Frequency")
-    st.pyplot(fig1)
+    funnel_data = filtered_df.groupby("Sector")["Expenditure(million USD)"].sum().reset_index()
+    funnel_data = funnel_data[funnel_data["Expenditure(million USD)"] > 0]
+    funnel_data = funnel_data.sort_values(by="Expenditure(million USD)", ascending=True)
 
-    # Correlation Heatmap
-    fig2, ax2 = plt.subplots()
-    sns.heatmap(filtered_df[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax2)
-    ax2.set_title("Correlation Heatmap")
-    st.pyplot(fig2)
+    # Apply formatting for display
+    funnel_data["Formatted Value"] = funnel_data["Expenditure(million USD)"].apply(format_millions)
 
-# 4. Question 1: Top 5 Countries by Total Expenditure
-st.header("❓ Top 5 Countries by Total Expenditure")
-top5_countries = df.groupby("Country")["Expenditure(million USD)"].sum().sort_values(ascending=False).head(5)
-st.dataframe(top5_countries)
-fig3, ax3 = plt.subplots()
-top5_countries.plot(kind="bar", ax=ax3)
-ax3.set_title("Top 5 Countries by Total Expenditure")
-ax3.set_ylabel("Expenditure (Million USD)")
-st.pyplot(fig3)
+    if not funnel_data.empty:
+        fig_funnel = px.funnel(
+            funnel_data,
+            x="Expenditure(million USD)",
+            y="Sector",
+            title=f"{selected_country} – Expenditure by Sector ({selected_year})",
+            template="plotly_white",
+            color_discrete_sequence=["#fdd835"] * len(funnel_data),  # yellow color
+            text="Formatted Value"  # Add formatted labels
+        )
+        fig_funnel.update_traces(textposition="inside", textfont_size=14)
+        fig_funnel.update_layout(
+            width=900,
+            height=700,
+            margin=dict(t=70, l=100, r=50, b=50),
+            font=dict(size=14)
+        )
+        st.plotly_chart(fig_funnel)
+    else:
+        st.info("No valid expenditure values to display.")
+else:
+    st.info("No data available for the selected filters.")
 
-# 5. Question 2: Top 5 Sectors by Total Expenditure
-st.header("❓ Top 5 Sectors by Total Expenditure")
-top5_sectors = df.groupby("Sector")["Expenditure(million USD)"].sum().sort_values(ascending=False).head(5)
-st.dataframe(top5_sectors)
-fig4, ax4 = plt.subplots()
-top5_sectors.plot(kind="bar", ax=ax4)
-ax4.set_title("Top 5 Sectors by Total Expenditure")
-ax4.set_ylabel("Expenditure (Million USD)")
-st.pyplot(fig4)
 
-# 6. Question 3: Top 10 Highest % of GDP
-st.header("❓ Which country spent the highest % of GDP on a single sector in any year?")
+# Q1: Top 5 countries (Plotly)
+st.header("❓Top 5 Countries by Total Expenditure")
+top5_countries = df.groupby("Country")["Expenditure(million USD)"].sum().nlargest(5).reset_index()
+render_styled_table(top5_countries)
+fig_q1 = px.bar(top5_countries, x="Country", y="Expenditure(million USD)", color="Expenditure(million USD)",
+                color_continuous_scale="blues", title="Top 5 Countries by Expenditure")
+st.plotly_chart(fig_q1)
+
+# Q2: Top 5 sectors (Plotly)
+st.header("❓Top 5 Sectors by Total Expenditure")
+top5_sectors = df.groupby("Sector")["Expenditure(million USD)"].sum().nlargest(5).reset_index()
+render_styled_table(top5_sectors)
+fig_q2 = px.bar(top5_sectors, x="Sector", y="Expenditure(million USD)", color="Expenditure(million USD)",
+                color_continuous_scale="greens", title="Top 5 Sectors by Expenditure")
+fig_q2.update_layout(xaxis_tickangle=-30)
+st.plotly_chart(fig_q2)
+
+# Q3: Highest % of GDP
+st.header("❓Highest % of GDP on a Sector")
 top_10 = df.sort_values("GDP(%)", ascending=False).head(10)
-fig5, ax5 = plt.subplots(figsize=(10, 6))
-bars = ax5.barh(
-    top_10['Country'] + ' - ' + top_10['Sector'] + ' (' + top_10['Year'].astype(str) + ')',
-    top_10["GDP(%)"], color="skyblue")
-for bar in bars:
-    ax5.text(bar.get_width()+0.1, bar.get_y()+bar.get_height()/2, f'{bar.get_width():.2f}%', va='center')
-ax5.set_title("Top 10 Expenditures as % of GDP")
-ax5.set_xlabel("% of GDP")
-ax5.set_ylabel("Country - Sector (Year)")
-st.pyplot(fig5)
+top_10["GDP(%)"] = top_10["GDP(%)"].round(2)  # <-- rounding GDP(%)
+render_styled_table(top_10[["Country", "Year", "Sector", "GDP(%)"]])
 max_entry = df.loc[df["GDP(%)"].idxmax()]
-st.markdown(f"**Most:** {max_entry['Country']} spent {max_entry['GDP(%)']}% of GDP on {max_entry['Sector']} in {max_entry['Year']}.")
+st.success(f"**Most:** {max_entry['Country']} spent {max_entry['GDP(%)']:.5f}% of GDP on {max_entry['Sector']} in {max_entry['Year']}.")
 
-# 7. Question 4: Education vs Health Over Years
-st.header("❓ How does education expenditure compare to health over the years?")
+# Q4: Education vs Health
+st.header("❓Education vs Health Spending Over Years")
 pivot_df = df.pivot_table(index="Year", columns="Sector", values="Expenditure(million USD)", aggfunc="sum")
-fig6, ax6 = plt.subplots(figsize=(10, 6))
-pivot_df[["Education", "Health"]].plot(ax=ax6)
-ax6.set_title("Education vs Health Expenditure Over the Years")
-ax6.set_ylabel("Expenditure (Million USD)")
-ax6.grid(True)
-st.pyplot(fig6)
+fig4 = px.line(pivot_df[["Education", "Health"]].reset_index(), x="Year", y=["Education", "Health"],
+               markers=True, title="Education vs Health Expenditure Over the Years")
+st.plotly_chart(fig4)
 
-# 8. Question 5: Which sectors increased the most from 2000 to 2021
-st.header("❓ Which sectors increased the most from 2000 to 2021?")
+# Q5: Sector growth
+st.header("❓Sector Growth from 2000 to 2021")
 exp_2000 = df[df["Year"] == 2000].groupby("Sector")["Expenditure(million USD)"].sum()
 exp_2021 = df[df["Year"] == 2021].groupby("Sector")["Expenditure(million USD)"].sum()
 comparison = pd.DataFrame({"2000": exp_2000, "2021": exp_2021})
 comparison["Increase"] = comparison["2021"] - comparison["2000"]
-fig7, ax7 = plt.subplots()
-comparison["Increase"].sort_values(ascending=False).plot(kind="bar", ax=ax7, color="green")
-ax7.set_title("Increase in Expenditure by Sector (2000 to 2021)")
-ax7.set_ylabel("Increase (Million USD)")
-st.pyplot(fig7)
+comparison = comparison.sort_values("Increase", ascending=False).reset_index()
+render_styled_table(comparison)
+fig_q5 = px.bar(comparison, x="Sector", y="Increase", color="Increase",
+                color_continuous_scale="Oranges", title="Sector Growth from 2000 to 2021")
+fig_q5.update_layout(xaxis_tickangle=-45)
+st.plotly_chart(fig_q5)
 
-# 9. Question 6 (Old Q9): Most Stable Spending Sectors
+# Q6: Most stable sectors (keep as is)
 st.header("📌 Most Stable Spending Sectors")
 sector_variation = df.groupby("Sector")["Expenditure(million USD)"].std().sort_values()
-fig_q6 = px.bar(sector_variation, title="Sectors with the Most Stable Spending (Lowest Std Dev)",
+fig_q6 = px.bar(sector_variation, title="Lowest Std Deviation in Sector Spending",
                 labels={"value": "Standard Deviation", "index": "Sector"},
-                color=sector_variation.values, color_continuous_scale="Blues")
+                color=sector_variation.values, color_continuous_scale="Purples")
 st.plotly_chart(fig_q6)
-st.markdown("**Insight:** Lower standard deviation means more consistent spending across years.")
 
-# 10. Question 7 (Old Q10): Average GDP% per Sector Globally
-st.header("📌 Average GDP% per Sector Globally")
+# Q7: Avg GDP% per Sector (keep as is)
+st.header("📌 Average GDP% per Sector (Globally)")
 avg_gdp_per_sector = df.groupby("Sector")["GDP(%)"].mean().sort_values(ascending=False)
 fig_q7 = px.pie(names=avg_gdp_per_sector.index, values=avg_gdp_per_sector.values,
                 title="Average %GDP Spent by Sector", hole=0.4,
                 color_discrete_sequence=px.colors.sequential.RdBu)
 st.plotly_chart(fig_q7)
 
-# 11. Explore GDP% by Country
-st.header("🌐 Explore GDP% by Sector and Country")
+# Q8: GDP% by Sector for selected country (keep as is)
+st.header(f"🌐 GDP% by Sector for {selected_country}")
 country_sector_gdp = df[df["Country"] == selected_country]
-fig_country = px.bar(
-    country_sector_gdp, x="Sector", y="GDP(%)", color="GDP(%)",
-    title=f"GDP% by Sector - {selected_country}",
-    labels={"GDP(%)": "% of GDP"}, color_continuous_scale="Viridis"
-)
+fig_country = px.bar(country_sector_gdp, x="Sector", y="GDP(%)", color="GDP(%)",
+                     title=f"{selected_country} - GDP% by Sector", color_continuous_scale="Viridis")
 fig_country.update_layout(xaxis_tickangle=-45)
 st.plotly_chart(fig_country)
 
-# ----------------------------
-# Question 9: Top 5 Spending Sectors in a Specific Country (e.g., Germany) in 2020
-# ----------------------------
-st.markdown("### ❓ What were the top 5 spending sectors in Germany in 2021?")
+# Q9: Germany 2021 (interactive)
+st.header("🇩🇪 Top 5 Spending Sectors in Germany (2021)")
+germany_2021 = df[(df['Country'] == 'Germany') & (df['Year'] == 2021)]
+top_sectors_ger = germany_2021.groupby('Sector')["GDP(%)"].sum().nlargest(5).reset_index()
+fig9 = px.bar(top_sectors_ger, x="Sector", y="GDP(%)", color="GDP(%)",
+              title="Top 5 Spending Sectors in Germany (2021)", color_continuous_scale="YlOrBr")
+st.plotly_chart(fig9)
 
-example_country = 'Germany'
-country_2020 = df[(df['Country'] == example_country) & (df['Year'] == 2021)]
-top_sectors_country = country_2020.groupby('Sector')['GDP(%)'].sum().sort_values(ascending=False)
-
-fig9, ax9 = plt.subplots(figsize=(10, 6))
-top_sectors_country.head(5).plot(kind='bar', color='skyblue', ax=ax9)
-ax9.set_title(f"Top 5 Spending Sectors in {example_country} (2021)")
-ax9.set_ylabel("Spending (% of GDP)")
-ax9.set_xticklabels(ax9.get_xticklabels(), rotation=45)
-st.pyplot(fig9)
-
-
-# ----------------------------
-# Question 10: Top 3 Globally Funded Sectors in 2021
-# ----------------------------
-st.markdown("### ❓ Which 3 sectors received the highest global funding in 2021?")
-
+# Q10: Global Top 3 sectors in 2021 (interactive)
+st.header("🌍 Top 3 Globally Funded Sectors in 2021")
 global_2021 = df[df['Year'] == 2021]
-top_global_sectors = global_2021.groupby('Sector')['GDP(%)'].sum().sort_values(ascending=False).head(3)
+top_sectors_2021 = global_2021.groupby('Sector')["GDP(%)"].sum().nlargest(3).reset_index()
+fig10 = px.bar(top_sectors_2021, x="Sector", y="GDP(%)", color="GDP(%)",
+               title="Top 3 Funded Sectors Globally in 2021", color_continuous_scale="Plasma")
+st.plotly_chart(fig10)
 
-fig10, ax10 = plt.subplots(figsize=(6, 5))
-top_global_sectors.plot(kind='bar', color='skyblue', ax=ax10)
-ax10.set_title("Top 3 Globally Funded Sectors in 2021")
-ax10.set_ylabel("Total GDP% Spending")
-ax10.set_xticklabels(ax10.get_xticklabels(), rotation=45)
-st.pyplot(fig10)
+# Q11: Global Expenditure Trend
+st.header("📈 Global Expenditure Trend (2000–2021)")
+yearly_total = df.groupby("Year")["Expenditure(million USD)"].sum().reset_index()
+render_styled_table(yearly_total)
+fig11 = px.line(yearly_total, x="Year", y="Expenditure(million USD)", markers=True,
+                title="Total Global Expenditure Trend", line_shape='spline')
+st.plotly_chart(fig11)
 
-# ----------------------------
-# Question 11: How has total government expenditure changed globally over time?
-# ----------------------------
-st.markdown("### ❓ How has total government expenditure changed globally over time?")
+# Forecasting
+st.header("🔮 Forecasting Health Expenditure (Random Forest)")
+df_health = df[df["Sector"] == "Health"]
+health_agg = df_health.groupby("Year")["Expenditure(million USD)"].sum().reset_index()
+X = health_agg[["Year"]]
+y = health_agg["Expenditure(million USD)"]
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(X, y)
+y_pred = model.predict(X)
 
-# Calculate total expenditure by year
-yearly_totals = df.groupby('Year')['Expenditure(million USD)'].sum().reset_index()
+fig_rf = px.line(health_agg, x="Year", y="Expenditure(million USD)", markers=True, labels={"value": "Expenditure"},
+                 title="Forecast vs Actual: Health Expenditure")
+fig_rf.add_scatter(x=X["Year"], y=y_pred, mode="lines+markers", name="Predicted")
+st.plotly_chart(fig_rf)
 
-# Create the plot
-fig11, ax11 = plt.subplots(figsize=(10, 5))
-ax11.plot(yearly_totals['Year'], yearly_totals['Expenditure(million USD)']/1e6,
-          marker='o', linestyle='-', color='royalblue', linewidth=2)
-ax11.set_title('Global Government Expenditure Trend (2000–2021)')
-ax11.set_xlabel('Year')
-ax11.set_ylabel('Total Expenditure (Trillion USD)')
-ax11.grid(True, alpha=0.3)
-st.pyplot(fig11)
-
-# Display the summary table
-st.markdown("#### 📊 Yearly Global Expenditure Summary:")
-st.dataframe(yearly_totals.rename(columns={"Expenditure(million USD)": "Total Expenditure (Million USD)"}))
-
-
-
-# --- Forecasting with Random Forest Regressor ---
-st.header("📈 Random Forest Regression Forecast")
-
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score, mean_squared_error
-
-# Clean and prepare data
-df["Expenditure(million USD)"] = pd.to_numeric(df["Expenditure(million USD)"], errors='coerce')
-df_clean = df.dropna(subset=["Expenditure(million USD)", "Year"])
-df_health = df_clean[df_clean["Sector"] == "Health"]
-
-# Group by year
-yearly_health = df_health.groupby("Year")["Expenditure(million USD)"].sum().reset_index()
-
-# Features and target
-X = yearly_health[["Year"]]
-y = yearly_health["Expenditure(million USD)"]
-
-# Train the Random Forest Regressor
-rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-rf_model.fit(X, y)
-y_pred = rf_model.predict(X)
-
-# Plot actual vs predicted
-plt.figure(figsize=(10, 6))
-plt.plot(X["Year"], y, marker='o', label="Actual", linewidth=2)
-plt.plot(X["Year"], y_pred, linestyle='--', marker='o', color='skyblue', label="Predicted", linewidth=2)
-plt.title("Random Forest Regression Forecast")
-plt.xlabel("Year")
-plt.ylabel("Total Expenditure (Million USD)")
-plt.legend()
-plt.grid(True)
-st.pyplot(plt)
-
-# Evaluate model
 r2 = r2_score(y, y_pred)
 mse = mean_squared_error(y, y_pred)
-
-st.markdown(f"**Model R² Score:** {r2:.4f}")
-st.markdown(f"**Mean Squared Error:** {mse:,.2f}")
+st.markdown(f"**R² Score:** {r2:.4f}")
+st.markdown(f"**Mean Squared Error:** {format_millions(mse)}")
