@@ -12,7 +12,7 @@ from sklearn.metrics import r2_score
 
 
 # Load Data
-df = pd.read_csv("C:/week1 project/WorldExpenditures.csv")
+df = pd.read_csv("WorldExpenditures.csv")
 
 # 1. Basic Dataset Overview
 st.title("🌍 World Government Expenditure Dashboard")
